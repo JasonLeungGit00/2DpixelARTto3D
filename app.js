@@ -138,7 +138,8 @@ async function loadFolders() {
       folderList.appendChild(div);
     });
   } catch (err) {
-    folderList.innerHTML = '<div class="text-red-400 text-center text-sm">失敗: ' + (err?.message || err) + '</div>';
+    var msg = (err && err.message) ? err.message : err;
+    folderList.innerHTML = '<div class="text-red-400 text-center text-sm">失敗: ' + msg + '</div>';
   }
 }
 
@@ -390,7 +391,8 @@ if (layerListEl) {
   });
 }
 
-document.getElementById('btn-layer-add')?.addEventListener('click', function () {
+var btnLayerAdd = document.getElementById('btn-layer-add');
+if (btnLayerAdd) btnLayerAdd.addEventListener('click', function () {
   var name = 'Layer ' + (state.layers.length + 1);
   var newLayer = makeLayer(name);
   state.layers.push(newLayer);
@@ -399,7 +401,8 @@ document.getElementById('btn-layer-add')?.addEventListener('click', function () 
   saveHistory();
 });
 
-document.getElementById('btn-layer-delete')?.addEventListener('click', function () {
+var btnLayerDelete = document.getElementById('btn-layer-delete');
+if (btnLayerDelete) btnLayerDelete.addEventListener('click', function () {
   if (state.layers.length <= 1) return;
   var idx = state.layers.findIndex(function (l) { return l.id === state.activeLayerId; });
   if (idx < 0) return;
@@ -412,7 +415,8 @@ document.getElementById('btn-layer-delete')?.addEventListener('click', function 
   saveHistory();
 });
 
-document.getElementById('btn-layer-up')?.addEventListener('click', function () {
+var btnLayerUp = document.getElementById('btn-layer-up');
+if (btnLayerUp) btnLayerUp.addEventListener('click', function () {
   var idx = state.layers.findIndex(function (l) { return l.id === state.activeLayerId; });
   if (idx <= 0) return;
   var t = state.layers[idx - 1];
@@ -425,7 +429,8 @@ document.getElementById('btn-layer-up')?.addEventListener('click', function () {
   saveHistory();
 });
 
-document.getElementById('btn-layer-down')?.addEventListener('click', function () {
+var btnLayerDown = document.getElementById('btn-layer-down');
+if (btnLayerDown) btnLayerDown.addEventListener('click', function () {
   var idx = state.layers.findIndex(function (l) { return l.id === state.activeLayerId; });
   if (idx < 0 || idx >= state.layers.length - 1) return;
   var t = state.layers[idx + 1];
@@ -1776,7 +1781,8 @@ async function exportTo(destination, type) {
     else alert('儲存失敗: ' + res.message);
   } catch (err) {
     loading.classList.add('hidden');
-    alert('系統錯誤: ' + (err?.message || err));
+    var msg = (err && err.message) ? err.message : err;
+    alert('系統錯誤: ' + msg);
   }
 }
 window.exportTo = exportTo;
