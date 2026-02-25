@@ -2,20 +2,145 @@
 // 3D Pixel Studio V3 (Standalone)
 // =========================
 
-// ===== 可選：如要用 Drive（用 GAS 當 API），填入下面兩項 =====
-const GAS_API_URL = ""; // 例：https://script.google.com/macros/s/xxxxx/exec
-const API_KEY = "";     // 同 GAS backend 設定一致
+// ===== Google Drive OAuth 設定 =====
+// 請填入 Google Cloud Console 的 Web OAuth Client ID
+const GOOGLE_CLIENT_ID = "";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly";
+var gTokenClient = null;
+var gAccessToken = "";
+var gDriveUserEmail = "";
+var gAuthInited = false;
 
 function driveEnabled() {
-  return Boolean(GAS_API_URL && API_KEY);
+  return Boolean(GOOGLE_CLIENT_ID);
 }
 
-async function apiPost(payload) {
-  const res = await fetch(GAS_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ key: API_KEY, ...payload })
+function updateGoogleAuthUI() {
+  var loginBtn = document.getElementById('btn-google-login');
+  var logoutBtn = document.getElementById('btn-google-logout');
+  var folderNameDisplay = document.getElementById('folder-name-display');
+  var signedIn = Boolean(gAccessToken);
+  if (loginBtn) loginBtn.classList.toggle('hidden', signedIn);
+  if (logoutBtn) logoutBtn.classList.toggle('hidden', !signedIn);
+  if (folderNameDisplay && signedIn && gDriveUserEmail) {
+    folderNameDisplay.textContent = gDriveUserEmail;
+    folderNameDisplay.title = gDriveUserEmail;
+  } else if (folderNameDisplay && !document.getElementById('folder-id').value) {
+    folderNameDisplay.textContent = '預設首頁';
+    folderNameDisplay.title = '預設存到雲端硬碟首頁';
+  }
+}
+
+function initGoogleAuth() {
+  if (gAuthInited) return true;
+  if (!driveEnabled() || !window.google || !google.accounts || !google.accounts.oauth2) {
+    updateGoogleAuthUI();
+    return false;
+  }
+
+  gTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: function (tokenResponse) {
+      gAccessToken = tokenResponse.access_token || "";
+      if (gAccessToken) fetchGoogleProfile().catch(function () {});
+      updateGoogleAuthUI();
+    }
   });
+  gAuthInited = true;
+  updateGoogleAuthUI();
+  return true;
+}
+
+async function fetchGoogleProfile() {
+  if (!gAccessToken) return;
+  try {
+    var res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: "Bearer " + gAccessToken }
+    });
+    if (!res.ok) return;
+    var me = await res.json();
+    gDriveUserEmail = me.email || "";
+  } catch (e) {}
+}
+
+function requestGoogleAccess(promptMode) {
+  return new Promise(function (resolve, reject) {
+    if (!driveEnabled()) return reject(new Error("未設定 GOOGLE_CLIENT_ID"));
+    if (!gTokenClient) return reject(new Error("Google auth 未初始化"));
+    gTokenClient.callback = function (tokenResponse) {
+      if (tokenResponse && tokenResponse.error) {
+        reject(new Error(tokenResponse.error));
+        return;
+      }
+      gAccessToken = tokenResponse.access_token || "";
+      fetchGoogleProfile().finally(function () {
+        updateGoogleAuthUI();
+        resolve(gAccessToken);
+      });
+    };
+    gTokenClient.requestAccessToken({ prompt: promptMode || "consent" });
+  });
+}
+
+async function ensureGoogleAccess() {
+  if (gAccessToken) return gAccessToken;
+  return await requestGoogleAccess("consent");
+}
+
+function googleLogout() {
+  if (gAccessToken && window.google && google.accounts && google.accounts.oauth2) {
+    google.accounts.oauth2.revoke(gAccessToken, function () {});
+  }
+  gAccessToken = "";
+  gDriveUserEmail = "";
+  var fInput = document.getElementById('folder-id');
+  if (fInput) fInput.value = "";
+  updateGoogleAuthUI();
+}
+
+function bootstrapGoogleAuth() {
+  if (!driveEnabled()) {
+    updateGoogleAuthUI();
+    return;
+  }
+  if (initGoogleAuth()) return;
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries += 1;
+    if (initGoogleAuth() || tries >= 20) clearInterval(timer);
+  }, 250);
+}
+
+async function driveApi(path, options) {
+  var token = await ensureGoogleAccess();
+  var req = options || {};
+  req.headers = Object.assign({}, req.headers || {}, { Authorization: "Bearer " + token });
+  var res = await fetch("https://www.googleapis.com/drive/v3" + path, req);
+  if (!res.ok) {
+    var errText = await res.text();
+    throw new Error("Drive API 失敗: " + res.status + " " + errText);
+  }
+  if (res.status === 204) return {};
+  return await res.json();
+}
+
+async function uploadFileToDrive(filename, blob, mimeType, folderId) {
+  var token = await ensureGoogleAccess();
+  var meta = { name: filename };
+  if (folderId) meta.parents = [folderId];
+  var form = new FormData();
+  form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
+  form.append("file", blob, filename);
+  var res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token },
+    body: form
+  });
+  if (!res.ok) {
+    var errText = await res.text();
+    throw new Error("上傳失敗: " + res.status + " " + errText);
+  }
   return await res.json();
 }
 
@@ -32,6 +157,7 @@ var state = {
   activeLayerId: "",
   palettePresets: ['#3b82f6', '#ef4444', '#22c55e', '#eab308', '#f97316', '#a855f7', '#0f172a', '#ffffff'],
   recentColors: [],
+  relief: { enabled: false, inset: 0.2, height: 0.5 },
   text: { enabled: false, content: 'PIXEL', size: 8, thickness: 1, x: 0, y: 0, color: '#ffffff' },
   hanger: { enabled: false, x: 0, y: -10, radius: 3, thickness: 1, color: '#facc15', style: 'ring' },
   history: [], historyIndex: -1, is3DVisible: true
@@ -74,6 +200,25 @@ function recomputePixelsFromLayers() {
   state.pixels = merged;
 }
 
+function getMergedVisiblePixels() {
+  ensureLayers();
+  var mergedFromLayers = {};
+  var mergedFromState = {};
+
+  if (Array.isArray(state.layers) && state.layers.length) {
+    state.layers.forEach(function (layer) {
+      if (!layer.visible) return;
+      for (var key in layer.pixels) mergedFromLayers[key] = layer.pixels[key];
+    });
+  }
+  for (var k in (state.pixels || {})) mergedFromState[k] = state.pixels[k];
+
+  var layerCount = Object.keys(mergedFromLayers).length;
+  var stateCount = Object.keys(mergedFromState).length;
+  if (layerCount >= stateCount) return mergedFromLayers;
+  return mergedFromState;
+}
+
 // --- Split.js ---
 var splitInstance = Split(['#split-left', '#split-right'], {
   sizes: [50, 50],
@@ -94,6 +239,21 @@ var folderModal = document.getElementById('folder-modal');
 var folderList = document.getElementById('folder-list');
 var folderIdInput = document.getElementById('folder-id');
 var folderNameDisplay = document.getElementById('folder-name-display');
+var googleLoginBtn = document.getElementById('btn-google-login');
+var googleLogoutBtn = document.getElementById('btn-google-logout');
+
+if (googleLoginBtn) {
+  googleLoginBtn.addEventListener('click', function () {
+    requestGoogleAccess('consent').catch(function (err) {
+      alert('Google 登入失敗: ' + ((err && err.message) ? err.message : err));
+    });
+  });
+}
+if (googleLogoutBtn) {
+  googleLogoutBtn.addEventListener('click', function () {
+    googleLogout();
+  });
+}
 
 document.getElementById('btn-select-folder').addEventListener('click', function () {
   folderModal.classList.remove('hidden');
@@ -109,24 +269,23 @@ document.getElementById('btn-select-root').addEventListener('click', function ()
 });
 
 async function loadFolders() {
-  // 靜態版未配置 Drive
+  // 未設定 OAuth
   if (!driveEnabled()) {
-    folderList.innerHTML = '<div class="text-yellow-400 text-center py-4 text-sm"><i class="fas fa-triangle-exclamation"></i> 未配置 Drive API（仍可用本機下載）</div>';
+    folderList.innerHTML = '<div class="text-yellow-400 text-center py-4 text-sm"><i class="fas fa-triangle-exclamation"></i> 未設定 GOOGLE_CLIENT_ID（仍可用本機下載）</div>';
     return;
   }
 
   folderList.innerHTML = '<div class="text-gray-400 text-center py-4 text-sm"><i class="fas fa-spinner fa-spin"></i> 讀取中...</div>';
   try {
-    const data = await apiPost({ action: "getUserFolders" });
-    const folders = data.folders || [];
+    const data = await driveApi("/files?q=" + encodeURIComponent("mimeType='application/vnd.google-apps.folder' and trashed=false") + "&fields=files(id,name)&orderBy=name");
+    var list = data.files || [];
     folderList.innerHTML = '';
-
-    if (folders.length === 0) {
+    if (list.length === 0) {
       folderList.innerHTML = '<div class="text-gray-500 text-center py-4 text-sm">無資料夾</div>';
       return;
     }
 
-    folders.forEach(function (f) {
+    list.forEach(function (f) {
       var div = document.createElement('div');
       div.className = 'folder-item text-gray-200 text-sm';
       div.innerHTML = '<i class="fas fa-folder"></i> ' + f.name;
@@ -317,6 +476,8 @@ function getSliderConfig(input) {
     'text-thickness': { min: 0.5, max: 10, step: 0.5 },
     'text-x': { min: -30, max: 30, step: 0.1 },
     'text-y': { min: -30, max: 30, step: 0.1 },
+    'relief-inset': { min: 0.05, max: 3, step: 0.05 },
+    'relief-height': { min: 0.1, max: 10, step: 0.1 },
     'hanger-x': { min: -30, max: 30, step: 0.5 },
     'hanger-y': { min: -30, max: 30, step: 0.5 },
     'hanger-r': { min: 0.5, max: 20, step: 0.5 },
@@ -472,6 +633,7 @@ function syncResponsiveUiState() {
     sectionAutoManaged = false;
     setSectionCollapsed('section-canvas-body', false);
     setSectionCollapsed('section-text-body', false);
+    setSectionCollapsed('section-relief-body', false);
     setSectionCollapsed('section-hanger-body', false);
     setSectionCollapsed('section-layers-body', false);
     setSectionCollapsed('section-palette-body', false);
@@ -482,6 +644,7 @@ function syncResponsiveUiState() {
   if (isTablet && !sectionAutoManaged) {
     setSectionCollapsed('section-canvas-body', false);
     setSectionCollapsed('section-text-body', true);
+    setSectionCollapsed('section-relief-body', true);
     setSectionCollapsed('section-hanger-body', true);
     setSectionCollapsed('section-layers-body', true);
     setSectionCollapsed('section-palette-body', true);
@@ -775,21 +938,71 @@ function createHangerMeshes(mm, thick, material) {
   return meshes;
 }
 
+function exportGroupFromArtScene() {
+  var out = new THREE.Group();
+  if (!artGroup || !artGroup.children || artGroup.children.length === 0) return out;
+  artGroup.updateMatrixWorld(true);
+
+  artGroup.children.forEach(function (child) {
+    if (child.isInstancedMesh) {
+      var mat = child.material && child.material.clone ? child.material.clone() : child.material;
+      if (mat && child.material && child.material.name) mat.name = child.material.name;
+      for (var i = 0; i < child.count; i++) {
+        var matrix = new THREE.Matrix4();
+        child.getMatrixAt(i, matrix);
+        var g = child.geometry.clone();
+        g.applyMatrix4(matrix);
+        var m = mat && mat.clone ? mat.clone() : mat;
+        if (m && mat && mat.name) m.name = mat.name;
+        out.add(new THREE.Mesh(g, m));
+      }
+      return;
+    }
+
+    if (child.isMesh) {
+      var geo = child.geometry.clone();
+      geo.applyMatrix4(child.matrix);
+      var cmat = child.material && child.material.clone ? child.material.clone() : child.material;
+      if (cmat && child.material && child.material.name) cmat.name = child.material.name;
+      out.add(new THREE.Mesh(geo, cmat));
+    }
+  });
+  return out;
+}
+
+function clampNum(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function getReliefConfig(mm, thick) {
+  var relief = state.relief || {};
+  var inset = clampNum(parseFloat(relief.inset) || 0.2, 0.05, Math.max(0.05, mm * 0.45));
+  var depth = clampNum(parseFloat(relief.height) || 0.5, 0.05, Math.max(0.05, thick * 0.9));
+  return {
+    enabled: Boolean(relief.enabled),
+    inset: inset,
+    height: depth,
+    capSize: Math.max(mm * 0.1, mm - (inset * 2))
+  };
+}
+
 function update3D(fit) {
   clearArtGroup();
 
   var mm = state.mmScale;
   var thick = state.layerThickness;
+  var relief = getReliefConfig(mm, thick);
+  var renderPixels = getMergedVisiblePixels();
   var offX = (state.gridW * mm) / 2;
   var offZ = (state.gridH * mm) / 2;
   var byColor = {};
 
   // 像素層
-  for (var key in state.pixels) {
+  for (var key in renderPixels) {
     var coords = key.split(',');
     var x = parseInt(coords[0]);
     var y = parseInt(coords[1]);
-    var hex = state.pixels[key];
+    var hex = renderPixels[key];
     if (!byColor[hex]) byColor[hex] = [];
     byColor[hex].push([x, y]);
   }
@@ -797,18 +1010,32 @@ function update3D(fit) {
   var m4 = new THREE.Matrix4();
   for (var color in byColor) {
     var list = byColor[color];
-    var boxGeo = new THREE.BoxGeometry(mm, thick, mm);
+    var bodyThick = relief.enabled ? Math.max(0.05, thick - relief.height) : thick;
+    var bodyGeo = new THREE.BoxGeometry(mm, bodyThick, mm);
     var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
     mat.name = 'mat_' + color.replace('#', '');
-    var inst = new THREE.InstancedMesh(boxGeo, mat, list.length);
+    var inst = new THREE.InstancedMesh(bodyGeo, mat, list.length);
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
-      m4.makeTranslation((p[0] * mm) - offX + (mm / 2), thick / 2, (p[1] * mm) - offZ + (mm / 2));
+      m4.makeTranslation((p[0] * mm) - offX + (mm / 2), bodyThick / 2, (p[1] * mm) - offZ + (mm / 2));
       inst.setMatrixAt(i, m4);
     }
     inst.castShadow = true;
     inst.receiveShadow = true;
     artGroup.add(inst);
+
+    if (relief.enabled) {
+      var capGeo = new THREE.BoxGeometry(relief.capSize, relief.height, relief.capSize);
+      var capInst = new THREE.InstancedMesh(capGeo, mat, list.length);
+      for (var j = 0; j < list.length; j++) {
+        var cp = list[j];
+        m4.makeTranslation((cp[0] * mm) - offX + (mm / 2), bodyThick + (relief.height / 2), (cp[1] * mm) - offZ + (mm / 2));
+        capInst.setMatrixAt(j, m4);
+      }
+      capInst.castShadow = true;
+      capInst.receiveShadow = true;
+      artGroup.add(capInst);
+    }
   }
 
   // 文字層
@@ -847,26 +1074,38 @@ function update3D(fit) {
 }
 
 function createExportGroup() {
+  var fromScene = exportGroupFromArtScene();
+  if (fromScene.children.length > 0) return fromScene;
+
   var group = new THREE.Group();
   var mm = state.mmScale;
   var thick = state.layerThickness;
+  var relief = getReliefConfig(mm, thick);
+  var renderPixels = getMergedVisiblePixels();
   var offX = (state.gridW * mm) / 2;
   var offZ = (state.gridH * mm) / 2;
-  var geo = new THREE.BoxGeometry(mm, thick, mm);
+  var bodyThick = relief.enabled ? Math.max(0.05, thick - relief.height) : thick;
+  var geo = new THREE.BoxGeometry(mm, bodyThick, mm);
+  var capGeo = relief.enabled ? new THREE.BoxGeometry(relief.capSize, relief.height, relief.capSize) : null;
   var mats = {};
 
-  for (var key in state.pixels) {
+  for (var key in renderPixels) {
     var coords = key.split(',');
     var x = parseInt(coords[0], 10);
     var y = parseInt(coords[1], 10);
-    var hex = state.pixels[key];
+    var hex = renderPixels[key];
     if (!mats[hex]) {
       mats[hex] = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3 });
       mats[hex].name = 'mat_' + hex.replace('#', '');
     }
     var mesh = new THREE.Mesh(geo, mats[hex]);
-    mesh.position.set((x * mm) - offX + (mm / 2), thick / 2, (y * mm) - offZ + (mm / 2));
+    mesh.position.set((x * mm) - offX + (mm / 2), bodyThick / 2, (y * mm) - offZ + (mm / 2));
     group.add(mesh);
+    if (relief.enabled) {
+      var capMesh = new THREE.Mesh(capGeo, mats[hex]);
+      capMesh.position.set((x * mm) - offX + (mm / 2), bodyThick + (relief.height / 2), (y * mm) - offZ + (mm / 2));
+      group.add(capMesh);
+    }
   }
 
   if (state.text.enabled && loadedFont && state.text.content) {
@@ -944,6 +1183,22 @@ document.getElementById('mm-scale').addEventListener('input', function (e) {
   state.mmScale = parseFloat(e.target.value) || 1;
   update3D(true);
   saveProjectDraft();
+});
+
+document.getElementById('relief-enable').addEventListener('change', function (e) {
+  state.relief.enabled = e.target.checked;
+  syncEnableBoxes();
+  update3D(false);
+  saveProjectDraft();
+});
+
+['relief-inset', 'relief-height'].forEach(function (id) {
+  document.getElementById(id).addEventListener('input', function () {
+    var key = id === 'relief-inset' ? 'inset' : 'height';
+    state.relief[key] = parseFloat(this.value) || state.relief[key];
+    update3D(false);
+    saveProjectDraft();
+  });
 });
 
 // --- 工具切換（top bar + dock 同步）---
@@ -1438,6 +1693,7 @@ function saveHistory() {
     pencilOnly: state.pencilOnly,
     recentColors: state.recentColors,
     palettePresets: state.palettePresets,
+    relief: state.relief,
     text: state.text, hanger: state.hanger,
     tool: state.tool, color: state.color
   }));
@@ -1464,6 +1720,10 @@ function loadHistory() {
   state.pencilOnly = Boolean(d.pencilOnly);
   state.recentColors = d.recentColors || state.recentColors || [];
   state.palettePresets = d.palettePresets || state.palettePresets;
+  state.relief = d.relief || state.relief;
+  if (typeof state.relief.enabled !== 'boolean') state.relief.enabled = false;
+  if (!state.relief.inset) state.relief.inset = 0.2;
+  if (!state.relief.height) state.relief.height = 0.5;
   state.text = d.text || state.text;
   state.hanger = d.hanger || state.hanger;
   if (!state.hanger.style) state.hanger.style = 'ring';
@@ -1479,6 +1739,9 @@ function loadHistory() {
   if (symmetryXInput) symmetryXInput.checked = state.symmetryX;
   if (symmetryYInput) symmetryYInput.checked = state.symmetryY;
   if (pencilOnlyInput) pencilOnlyInput.checked = state.pencilOnly;
+  document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
+  document.getElementById('relief-inset').value = state.relief.inset;
+  document.getElementById('relief-height').value = state.relief.height;
   document.getElementById('hanger-style').value = state.hanger.style || 'ring';
 
   syncEnableBoxes();
@@ -1545,15 +1808,6 @@ function getFileName() {
   return name ? name : 'Untitled';
 }
 
-function blobToBase64(blob) {
-  return new Promise(function (resolve, reject) {
-    var reader = new FileReader();
-    reader.onloadend = function () { resolve(reader.result.split(',')[1]); };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
 function exportGlbBlob(group) {
   return new Promise(function (resolve, reject) {
     try {
@@ -1594,6 +1848,7 @@ function saveProjectDraft() {
       color: state.color,
       layers: state.layers,
       activeLayerId: state.activeLayerId,
+      relief: state.relief,
       text: state.text,
       hanger: state.hanger,
       recentColors: state.recentColors,
@@ -1622,6 +1877,10 @@ function restoreProjectDraft() {
     state.color = d.color || state.color;
     state.layers = d.layers || state.layers;
     state.activeLayerId = d.activeLayerId || state.activeLayerId;
+    state.relief = d.relief || state.relief;
+    if (typeof state.relief.enabled !== 'boolean') state.relief.enabled = false;
+    if (!state.relief.inset) state.relief.inset = 0.2;
+    if (!state.relief.height) state.relief.height = 0.5;
     state.text = d.text || state.text;
     state.hanger = d.hanger || state.hanger;
     if (!state.hanger.style) state.hanger.style = 'ring';
@@ -1636,7 +1895,8 @@ function restoreProjectDraft() {
 }
 
 async function exportAllLocalZip() {
-  if (Object.keys(state.pixels).length === 0) return alert('空畫布');
+  var renderPixels = getMergedVisiblePixels();
+  if (Object.keys(renderPixels).length === 0) return alert('空畫布');
   document.getElementById('export-dropdown').classList.add('hidden');
   var loading = document.getElementById('loading');
   var loadingText = document.getElementById('loading-text');
@@ -1659,7 +1919,7 @@ async function exportAllLocalZip() {
     var objContent = exporter.parse(exportGroup);
     objContent = "mtllib " + fname + ".mtl\n" + objContent;
     var usedColors = new Set();
-    for (var key in state.pixels) usedColors.add(state.pixels[key]);
+    for (var key in renderPixels) usedColors.add(renderPixels[key]);
     if (state.text.enabled) usedColors.add(state.text.color);
     if (state.hanger.enabled) usedColors.add(state.hanger.color);
     var mtlContent = "";
@@ -1684,7 +1944,8 @@ async function exportAllLocalZip() {
 window.exportAllLocalZip = exportAllLocalZip;
 
 async function exportTo(destination, type) {
-  if (Object.keys(state.pixels).length === 0) return alert('空畫布');
+  var renderPixels = getMergedVisiblePixels();
+  if (Object.keys(renderPixels).length === 0) return alert('空畫布');
 
   document.getElementById('export-dropdown').classList.add('hidden');
 
@@ -1719,7 +1980,7 @@ async function exportTo(destination, type) {
     objContent = "mtllib " + fname + ".mtl\n" + objContent;
 
     var usedColors = new Set();
-    for (var key in state.pixels) usedColors.add(state.pixels[key]);
+    for (var key in renderPixels) usedColors.add(renderPixels[key]);
     if (state.text.enabled) usedColors.add(state.text.color);
     if (state.hanger.enabled) usedColors.add(state.hanger.color);
 
@@ -1752,33 +2013,33 @@ async function exportTo(destination, type) {
     link.href = URL.createObjectURL(contentBlob);
     link.download = filename;
     link.click();
+    if (type === 'stl') {
+      console.log('[export:stl] pixels=', Object.keys(renderPixels).length, 'layers=', state.layers.length, 'statePixels=', Object.keys(state.pixels || {}).length);
+    }
     loading.classList.add('hidden');
     return;
   }
 
-  // Drive（可選）
+  // Drive（每位用戶自己的 Google Drive）
   if (!driveEnabled()) {
     loading.classList.add('hidden');
-    alert('未配置 Drive API（仍可用「下載到本機」）');
+    alert('未設定 GOOGLE_CLIENT_ID（仍可用「下載到本機」）');
     return;
   }
 
   try {
     var folderId = document.getElementById('folder-id').value;
-    var dataToSend = isBinary ? await blobToBase64(contentBlob) : await contentBlob.text();
-
-    const res = await apiPost({
-      action: "saveFileToDrive",
-      data: dataToSend,
-      filename: filename,
-      mimeType: mime,
-      isBase64: isBinary,
-      folderId: folderId
-    });
+    await ensureGoogleAccess();
+    const res = await uploadFileToDrive(filename, contentBlob, mime, folderId);
 
     loading.classList.add('hidden');
-    if (res.status === 'success') alert('成功儲存到雲端！\n檔名: ' + res.name);
-    else alert('儲存失敗: ' + res.message);
+    if (res && res.id) {
+      var msg = '成功儲存到你的 Google Drive！\n檔名: ' + (res.name || filename);
+      if (res.webViewLink) msg += '\n\n開啟: ' + res.webViewLink;
+      alert(msg);
+    } else {
+      alert('儲存失敗: Drive API 無回傳檔案資訊');
+    }
   } catch (err) {
     loading.classList.add('hidden');
     var msg = (err && err.message) ? err.message : err;
@@ -1816,6 +2077,10 @@ document.getElementById('file-input').onchange = function (e) {
       state.pencilOnly = Boolean(d.pencilOnly);
       state.recentColors = d.recentColors || state.recentColors || [];
       state.palettePresets = d.palettePresets || state.palettePresets;
+      state.relief = d.relief || state.relief;
+      if (typeof state.relief.enabled !== 'boolean') state.relief.enabled = false;
+      if (!state.relief.inset) state.relief.inset = 0.2;
+      if (!state.relief.height) state.relief.height = 0.5;
       state.text = d.text || state.text;
       if (d.hanger) state.hanger = d.hanger;
       if (!state.hanger.style) state.hanger.style = 'ring';
@@ -1831,6 +2096,9 @@ document.getElementById('file-input').onchange = function (e) {
       if (symmetryXInput) symmetryXInput.checked = state.symmetryX;
       if (symmetryYInput) symmetryYInput.checked = state.symmetryY;
       if (pencilOnlyInput) pencilOnlyInput.checked = state.pencilOnly;
+      document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
+      document.getElementById('relief-inset').value = state.relief.inset;
+      document.getElementById('relief-height').value = state.relief.height;
       document.getElementById('hanger-style').value = state.hanger.style || 'ring';
 
       syncEnableBoxes();
@@ -1852,6 +2120,10 @@ document.getElementById('file-input').onchange = function (e) {
 
 // --- Text & Hanger UI Sync（修正：要 toggle pointer-events-none）---
 function syncEnableBoxes() {
+  var rBox = document.getElementById('relief-controls');
+  rBox.classList.toggle('opacity-50', !state.relief.enabled);
+  rBox.classList.toggle('pointer-events-none', !state.relief.enabled);
+
   var tBox = document.getElementById('text-controls');
   tBox.classList.toggle('opacity-50', !state.text.enabled);
   tBox.classList.toggle('pointer-events-none', !state.text.enabled);
@@ -1946,11 +2218,16 @@ function animate() {
   if (symmetryXInput) symmetryXInput.checked = state.symmetryX;
   if (symmetryYInput) symmetryYInput.checked = state.symmetryY;
   if (pencilOnlyInput) pencilOnlyInput.checked = state.pencilOnly;
+  document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
+  document.getElementById('relief-inset').value = state.relief.inset;
+  document.getElementById('relief-height').value = state.relief.height;
   document.getElementById('hanger-style').value = state.hanger.style || 'ring';
   document.getElementById('grid-w').value = state.gridW;
   document.getElementById('grid-h').value = state.gridH;
   document.getElementById('mm-scale').value = state.mmScale;
   document.getElementById('layer-thickness').value = state.layerThickness;
+  bootstrapGoogleAuth();
+  window.addEventListener('load', bootstrapGoogleAuth);
   initCanvasSize();
   resizeThreeViewport();
   update3D(true);

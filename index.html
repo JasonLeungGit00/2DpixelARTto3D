@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.0/split.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- three.js r128 + examples -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -37,6 +38,12 @@
           placeholder="作品名稱">
 
         <div class="ml-3 flex items-center bg-gray-800 rounded px-2 py-1 border border-gray-700">
+          <button id="btn-google-login" class="text-xs bg-emerald-700 hover:bg-emerald-600 px-2 py-0.5 rounded text-white transition flex items-center mr-2">
+            <i class="fab fa-google mr-1"></i>登入
+          </button>
+          <button id="btn-google-logout" class="hidden text-xs bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-gray-200 transition flex items-center mr-2">
+            <i class="fas fa-right-from-bracket mr-1"></i>登出
+          </button>
           <button id="btn-select-folder" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-gray-200 transition flex items-center">
             <i class="fas fa-folder-open mr-1 text-yellow-500"></i>位置
           </button>
@@ -194,6 +201,30 @@
           </section>
 
           <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-relief-body">
+              <span class="font-bold text-amber-300 text-xs uppercase"><i class="fas fa-border-all mr-1"></i>格線刻痕模式</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-relief-body" class="panel-section-body">
+              <label class="flex items-center cursor-pointer mb-2">
+                <input type="checkbox" id="relief-enable" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">
+                <span class="text-xs text-gray-300">每格邊界加入凹線</span>
+              </label>
+
+              <div id="relief-controls" class="grid grid-cols-2 gap-2 opacity-50 pointer-events-none transition-opacity">
+                <div>
+                  <label class="text-[10px] text-gray-500">刻線寬度(mm)</label>
+                  <input type="number" id="relief-inset" value="0.2" min="0.05" max="3" step="0.05" class="bg-gray-800 rounded px-1 py-1 w-full text-white">
+                </div>
+                <div>
+                  <label class="text-[10px] text-gray-500">刻線深度(mm)</label>
+                  <input type="number" id="relief-height" value="0.5" min="0.1" max="10" step="0.1" class="bg-gray-800 rounded px-1 py-1 w-full text-white">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-card">
             <button class="panel-section-toggle is-open" data-target="section-hanger-body">
               <span class="font-bold text-green-400 text-xs uppercase"><i class="fas fa-ring mr-1"></i>掛鉤圈圈</span>
               <i class="fas fa-chevron-down panel-chevron"></i>
@@ -319,6 +350,6 @@
     <button id="btn-panel-toggle-dock" class="dock-btn"><i class="fas fa-sliders"></i></button>
   </div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260225b"></script>
 </body>
 </html>
