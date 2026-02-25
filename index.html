@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Pixel Studio V3</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="./favicon.ico" />
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- libs -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.0/split.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- three.js r128 + examples -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body class="flex flex-col h-screen">
+  <nav id="topbar" class="bg-gray-900 border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-50 shadow-lg">
+    <div id="topbar-left" class="flex items-center gap-2">
+      <h1 class="font-bold text-lg text-white flex items-center" id="project-area">
+        <i class="fas fa-cubes text-blue-500 mr-2"></i>
+        <input type="text" id="project-name" value="MyPixelArt"
+          class="bg-transparent border-b border-gray-600 focus:border-blue-500 text-white px-1 py-0.5 outline-none w-32 text-sm font-normal placeholder-gray-500"
+          placeholder="作品名稱">
+
+        <div class="ml-3 flex items-center bg-gray-800 rounded px-2 py-1 border border-gray-700">
+          <button id="btn-select-folder" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-gray-200 transition flex items-center">
+            <i class="fas fa-folder-open mr-1 text-yellow-500"></i>位置
+          </button>
+          <input type="hidden" id="folder-id">
+          <span id="folder-name-display" class="text-xs text-gray-400 ml-2 truncate max-w-[100px]" title="預設存到雲端硬碟首頁">預設首頁</span>
+        </div>
+      </h1>
+
+      <div class="h-6 w-px bg-gray-700 mx-2"></div>
+
+      <div id="tool-buttons" class="flex bg-gray-800 rounded p-1 gap-1 border border-gray-700">
+        <button id="btn-draw" data-tool="draw" class="tool-btn w-8 h-8 rounded bg-blue-600 text-white flex items-center justify-center"><i class="fas fa-pen"></i></button>
+        <button id="btn-erase" data-tool="erase" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="fas fa-eraser"></i></button>
+        <button id="btn-fill" data-tool="fill" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="fas fa-fill-drip"></i></button>
+        <button id="btn-select" data-tool="select" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="fas fa-vector-square"></i></button>
+        <button id="btn-line" data-tool="line" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="fas fa-slash"></i></button>
+        <button id="btn-rect" data-tool="rect" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="far fa-square"></i></button>
+        <button id="btn-circle" data-tool="circle" class="tool-btn w-8 h-8 rounded text-gray-300 hover:bg-gray-700 flex items-center justify-center"><i class="far fa-circle"></i></button>
+      </div>
+
+      <input type="color" id="color-picker" value="#3b82f6" class="w-8 h-8 rounded cursor-pointer bg-transparent border-0 ring-1 ring-gray-600 ml-2">
+
+      <div class="flex gap-1 ml-2" id="history-buttons">
+        <button id="btn-copy-selection" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-300" title="複製選區"><i class="fas fa-copy"></i></button>
+        <button id="btn-selection-scale-up" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-300" title="放大選區"><i class="fas fa-expand"></i></button>
+        <button id="btn-selection-scale-down" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-300" title="縮小選區"><i class="fas fa-compress"></i></button>
+        <button id="btn-selection-rotate" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-300" title="旋轉選區"><i class="fas fa-rotate-right"></i></button>
+        <button id="btn-selection-to-layer" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-300" title="選區複製到新圖層"><i class="fas fa-layer-group"></i></button>
+        <button id="btn-undo" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-400"><i class="fas fa-undo"></i></button>
+        <button id="btn-redo" class="tool-btn w-8 h-8 rounded hover:bg-gray-800 text-gray-400"><i class="fas fa-redo"></i></button>
+      </div>
+    </div>
+
+    <div id="topbar-right" class="flex items-center gap-3">
+      <button id="btn-control-mode" class="px-3 py-1 bg-gray-800 border border-gray-600 rounded text-sm text-emerald-300">拉桿模式</button>
+      <button id="btn-toggle-3d" class="px-3 py-1 bg-gray-800 border border-gray-600 rounded text-sm text-blue-400">切換視窗</button>
+
+      <div class="relative z-50">
+        <button id="btn-export-toggle" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-sm font-bold shadow flex items-center gap-2">
+          <i class="fas fa-file-export"></i> 匯出 / 儲存 <i class="fas fa-chevron-down text-xs"></i>
+        </button>
+
+        <div id="export-dropdown" class="hidden absolute right-0 mt-2 w-64 bg-gray-800 border border-gray-600 rounded shadow-xl overflow-hidden grid grid-cols-1 divide-y divide-gray-700">
+          <div>
+            <div class="export-header"><i class="fab fa-google-drive mr-1 text-green-500"></i> 儲存到雲端</div>
+            <button onclick="exportTo('drive', 'json')" class="export-item">專案檔 (JSON) <i class="fas fa-cloud-upload-alt"></i></button>
+            <button onclick="exportTo('drive', 'stl')" class="export-item">3D 模型 (STL) <i class="fas fa-cube"></i></button>
+            <button onclick="exportTo('drive', 'obj')" class="export-item">彩色模型 (OBJ ZIP) <i class="fas fa-shapes"></i></button>
+            <button onclick="exportTo('drive', 'glb')" class="export-item">3D 模型 (GLB) <i class="fas fa-cubes"></i></button>
+          </div>
+
+          <div>
+            <div class="export-header"><i class="fas fa-desktop mr-1 text-blue-400"></i> 下載到本機</div>
+            <button onclick="exportTo('local', 'json')" class="export-item">專案檔 (JSON) <i class="fas fa-download"></i></button>
+            <button onclick="exportTo('local', 'stl')" class="export-item">3D 模型 (STL) <i class="fas fa-download"></i></button>
+            <button onclick="exportTo('local', 'obj')" class="export-item">彩色模型 (OBJ ZIP) <i class="fas fa-file-archive"></i></button>
+            <button onclick="exportTo('local', 'glb')" class="export-item">3D 模型 (GLB) <i class="fas fa-file"></i></button>
+            <button onclick="exportAllLocalZip()" class="export-item">全格式打包 (ZIP) <i class="fas fa-box-open"></i></button>
+          </div>
+
+          <div class="bg-gray-900">
+            <label class="block w-full text-center px-4 py-3 hover:bg-gray-700 text-sm text-gray-400 cursor-pointer border-t border-gray-700 transition">
+              <i class="fas fa-folder-open mr-1"></i> 從電腦讀取 JSON
+              <input type="file" id="file-input" accept=".json" class="hidden">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="flex-1 flex overflow-hidden relative" id="main-split">
+    <div id="split-left" class="flex flex-col bg-gray-800 min-w-[300px] relative z-0">
+      <div id="canvas-bg" class="flex-1 flex items-center justify-center overflow-hidden">
+        <canvas id="pixel-canvas" class="shadow-2xl bg-white cursor-crosshair"></canvas>
+      </div>
+
+      <div id="panel-header" class="bg-gray-900 border-t border-gray-700 px-4 py-2 hidden">
+        <button id="btn-panel-toggle" class="w-full text-left text-sm text-blue-300 bg-gray-800 border border-gray-700 rounded px-3 py-2">
+          <i class="fas fa-sliders mr-2"></i><span id="panel-toggle-label">收合設定面板</span>
+        </button>
+      </div>
+
+      <div id="control-panel" class="h-80 bg-gray-900 border-t border-gray-700 overflow-y-auto p-4 z-10 custom-scrollbar">
+        <div class="space-y-3 text-sm">
+          <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-canvas-body">
+              <span class="font-bold text-blue-400 text-xs uppercase"><i class="fas fa-th mr-1"></i>畫布設定</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-canvas-body" class="panel-section-body">
+              <div class="flex items-center gap-2 mb-2">
+                <input type="number" id="grid-w" value="16" class="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-16 text-white text-center">
+                <span class="text-gray-500">x</span>
+                <input type="number" id="grid-h" value="16" class="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-16 text-white text-center">
+                <button id="btn-resize" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600 ml-auto">重設</button>
+              </div>
+
+              <div class="flex gap-4">
+                <div class="flex-1">
+                  <label class="text-[10px] text-gray-400 block">1格大小(mm)</label>
+                  <input type="number" id="mm-scale" value="1" step="0.5" class="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-full text-white">
+                </div>
+                <div class="flex-1">
+                  <label class="text-[10px] text-gray-400 block">層厚度(mm)</label>
+                  <input type="number" id="layer-thickness" value="1" step="0.5" min="0.5" max="20" class="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-full text-white">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label class="text-[10px] text-gray-400 block">筆刷大小</label>
+                  <input type="number" id="brush-size" value="1" min="1" max="10" step="1" class="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-full text-white">
+                </div>
+                <div class="flex items-end">
+                  <label class="flex items-center cursor-pointer text-xs text-gray-300">
+                    <input type="checkbox" id="pencil-only" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">
+                    Pencil Only
+                  </label>
+                </div>
+              </div>
+
+              <div class="mt-3">
+                <label class="text-[10px] text-gray-400 block mb-1">對稱繪圖</label>
+                <div class="flex gap-3 text-xs">
+                  <label class="flex items-center cursor-pointer text-gray-300"><input type="checkbox" id="symmetry-x" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">左右</label>
+                  <label class="flex items-center cursor-pointer text-gray-300"><input type="checkbox" id="symmetry-y" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">上下</label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-text-body">
+              <span class="font-bold text-yellow-400 text-xs uppercase"><i class="fas fa-font mr-1"></i>文字層</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-text-body" class="panel-section-body">
+              <label class="flex items-center cursor-pointer mb-2">
+                <input type="checkbox" id="text-enable" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">
+                <span class="text-xs text-gray-300">啟用文字</span>
+              </label>
+
+              <div id="text-controls" class="space-y-2 opacity-50 pointer-events-none transition-opacity">
+                <input type="text" id="text-content" placeholder="輸入文字..." class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white">
+                <div class="grid grid-cols-4 gap-2">
+                  <div><label class="text-[10px] text-gray-500">大小</label><input type="number" id="text-size" value="8" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                  <div><label class="text-[10px] text-gray-500">厚度</label><input type="number" id="text-thickness" value="1" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                  <div><label class="text-[10px] text-gray-500">X</label><input type="number" id="text-x" value="0" step="0.1" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                  <div><label class="text-[10px] text-gray-500">Y</label><input type="number" id="text-y" value="0" step="0.1" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                </div>
+                <div class="flex items-center gap-2"><label class="text-[10px] text-gray-500">顏色</label><input type="color" id="text-color" value="#ffffff" class="h-6 w-full p-0 border-0 bg-transparent"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-hanger-body">
+              <span class="font-bold text-green-400 text-xs uppercase"><i class="fas fa-ring mr-1"></i>掛鉤圈圈</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-hanger-body" class="panel-section-body">
+              <label class="flex items-center cursor-pointer mb-2">
+                <input type="checkbox" id="hanger-enable" class="mr-2 rounded text-blue-500 bg-gray-700 border-gray-600">
+                <span class="text-xs text-gray-300">啟用掛鉤</span>
+              </label>
+
+              <div id="hanger-controls" class="space-y-2 opacity-50 pointer-events-none transition-opacity">
+              <div class="grid grid-cols-4 gap-2">
+                <div><label class="text-[10px] text-gray-500">X</label><input type="number" id="hanger-x" value="0" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                <div><label class="text-[10px] text-gray-500">Y</label><input type="number" id="hanger-y" value="-10" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                <div><label class="text-[10px] text-gray-500">半徑</label><input type="number" id="hanger-r" value="3" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                <div><label class="text-[10px] text-gray-500">粗細</label><input type="number" id="hanger-t" value="1" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 block">款式</label>
+                <select id="hanger-style" class="bg-gray-800 rounded px-2 py-1 w-full text-white border border-gray-700">
+                  <option value="ring">圓圈</option>
+                  <option value="pixel-square">像素方圈</option>
+                  <option value="pixel-diamond">像素菱形圈</option>
+                  <option value="heart">愛心掛鉤</option>
+                  <option value="double-ring">雙圓圈</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-2"><label class="text-[10px] text-gray-500">顏色</label><input type="color" id="hanger-color" value="#facc15" class="h-6 w-full p-0 border-0 bg-transparent"></div>
+            </div>
+          </div>
+        </section>
+
+          <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-layers-body">
+              <span class="font-bold text-cyan-400 text-xs uppercase"><i class="fas fa-layer-group mr-1"></i>圖層</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-layers-body" class="panel-section-body">
+              <div class="flex gap-2 mb-2">
+                <button id="btn-layer-add" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">新增</button>
+                <button id="btn-layer-up" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">上移</button>
+                <button id="btn-layer-down" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">下移</button>
+                <button id="btn-layer-delete" class="px-2 py-1 bg-red-700/70 hover:bg-red-600 rounded text-xs text-white border border-red-500/70 ml-auto">刪除</button>
+              </div>
+              <div id="layer-list" class="space-y-1"></div>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <button class="panel-section-toggle is-open" data-target="section-palette-body">
+              <span class="font-bold text-pink-400 text-xs uppercase"><i class="fas fa-palette mr-1"></i>調色盤</span>
+              <i class="fas fa-chevron-down panel-chevron"></i>
+            </button>
+            <div id="section-palette-body" class="panel-section-body">
+              <div class="mb-2">
+                <label class="text-[10px] text-gray-400 block mb-1">快速色票</label>
+                <div id="palette-swatches" class="flex flex-wrap gap-2"></div>
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-400 block mb-1">最近使用</label>
+                <div id="recent-colors" class="flex flex-wrap gap-2"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="split-right" class="relative bg-black flex flex-col min-w-0">
+      <div id="three-container" class="flex-1 w-full h-full outline-none block"></div>
+
+      <div id="view-cube-controls">
+        <button class="view-btn rounded-t" id="view-top">TOP</button>
+        <div class="flex gap-1">
+          <button class="view-btn rounded-l" id="view-left">L</button>
+          <button class="view-btn bg-blue-600/40" id="view-front">F</button>
+          <button class="view-btn rounded-r" id="view-right">R</button>
+        </div>
+        <button class="view-btn rounded-b" id="view-home"><i class="fas fa-home"></i></button>
+      </div>
+
+      <div id="loading" class="absolute inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+        <div class="text-white text-center">
+          <i class="fas fa-spinner fa-spin text-2xl"></i>
+          <p id="loading-text">處理中...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="folder-modal" class="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center hidden">
+    <div class="bg-gray-800 w-80 max-h-[80vh] rounded-lg shadow-2xl border border-gray-600 flex flex-col">
+      <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+        <h3 class="text-white font-bold"><i class="fas fa-folder-open text-yellow-500 mr-2"></i>選擇位置</h3>
+        <button id="btn-close-folder" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="folder-list" class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+        <div class="text-gray-400 text-center py-4 text-sm"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>
+      </div>
+      <div class="p-3 border-t border-gray-700 bg-gray-900 rounded-b-lg">
+        <button id="btn-select-root" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold">預設首頁</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="touch-dock">
+    <button id="btn-draw-dock" data-tool="draw" class="dock-btn"><i class="fas fa-pen"></i></button>
+    <button id="btn-erase-dock" data-tool="erase" class="dock-btn"><i class="fas fa-eraser"></i></button>
+    <button id="btn-fill-dock" data-tool="fill" class="dock-btn"><i class="fas fa-fill-drip"></i></button>
+    <button id="btn-select-dock" data-tool="select" class="dock-btn"><i class="fas fa-vector-square"></i></button>
+    <button id="btn-line-dock" data-tool="line" class="dock-btn"><i class="fas fa-slash"></i></button>
+    <button id="btn-rect-dock" data-tool="rect" class="dock-btn"><i class="far fa-square"></i></button>
+    <button id="btn-circle-dock" data-tool="circle" class="dock-btn"><i class="far fa-circle"></i></button>
+    <input type="color" id="color-picker-dock" value="#3b82f6" class="dock-color">
+    <button id="btn-copy-selection-dock" class="dock-btn"><i class="fas fa-copy"></i></button>
+    <button id="btn-selection-scale-up-dock" class="dock-btn"><i class="fas fa-expand"></i></button>
+    <button id="btn-selection-scale-down-dock" class="dock-btn"><i class="fas fa-compress"></i></button>
+    <button id="btn-selection-rotate-dock" class="dock-btn"><i class="fas fa-rotate-right"></i></button>
+    <button id="btn-selection-to-layer-dock" class="dock-btn"><i class="fas fa-layer-group"></i></button>
+    <button id="btn-undo-dock" class="dock-btn"><i class="fas fa-undo"></i></button>
+    <button id="btn-redo-dock" class="dock-btn"><i class="fas fa-redo"></i></button>
+    <button id="btn-control-mode-dock" class="dock-btn"><i class="fas fa-sliders-h"></i></button>
+    <button id="btn-panel-toggle-dock" class="dock-btn"><i class="fas fa-sliders"></i></button>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

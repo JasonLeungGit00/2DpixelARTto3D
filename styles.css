@@ -1,0 +1,305 @@
+body {
+  overflow: hidden;
+  height: 100vh;
+  background-color: #111827;
+  color: #e5e7eb;
+  font-family: sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+#topbar {
+  min-height: 56px;
+  padding-top: max(0px, env(safe-area-inset-top));
+}
+#topbar-left, #topbar-right {
+  min-height: 52px;
+}
+#pixel-canvas {
+  touch-action: none;
+}
+#three-container {
+  touch-action: none;
+}
+.gutter { background-color: #374151; cursor: col-resize; z-index: 50; }
+.gutter:hover { background-color: #3b82f6; }
+
+#canvas-bg {
+  background-color: #374151;
+  background-image: radial-gradient(#6b7280 1px, transparent 1px);
+  background-size: 20px 20px;
+  position: relative;
+  z-index: 1;
+}
+
+#view-cube-controls { position: absolute; top: 20px; right: 20px; z-index: 100; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.view-btn { width: 30px; height: 30px; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(148, 163, 184, 0.5); color: white; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.view-btn:hover { background: #3b82f6; }
+
+.folder-item { cursor: pointer; padding: 8px 12px; border-radius: 6px; transition: 0.2s; display: flex; align-items: center; }
+.folder-item:hover { background-color: #374151; }
+.folder-item i { margin-right: 10px; color: #facc15; }
+
+/* CDN Tailwind 無法用 @apply，所以用純 CSS 寫返 */
+.export-header{
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.5rem 1rem;
+  background: #111827;
+  border-bottom: 1px solid #374151;
+  color: #6b7280;
+}
+.export-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  width:100%;
+  text-align:left;
+  padding:0.5rem 1rem;
+  font-size:0.875rem;
+  transition:0.2s;
+  color:#e5e7eb;
+}
+.export-item:hover{ background:#374151; }
+.export-item:hover i{ color:#60a5fa; }
+
+input, button { pointer-events: auto !important; }
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+
+#panel-header { display: none; }
+#control-panel.collapsed { display: none; }
+.panel-card {
+  border: 1px solid #374151;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  overflow: hidden;
+}
+.panel-section-toggle {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid #374151;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+.panel-section-body {
+  padding: 10px 12px 12px;
+}
+.panel-section-body.collapsed {
+  display: none;
+}
+.panel-chevron {
+  transition: transform 0.2s ease;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.panel-section-toggle:not(.is-open) .panel-chevron {
+  transform: rotate(-90deg);
+}
+.layer-row {
+  display: grid;
+  grid-template-columns: 24px 24px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  cursor: pointer;
+}
+.layer-row.active {
+  border-color: #60a5fa;
+  background: rgba(30, 58, 138, 0.35);
+}
+.layer-icon {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+.swatch-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+#touch-dock {
+  display: none;
+}
+.dock-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid #475569;
+  background: rgba(30, 41, 59, 0.95);
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dock-color {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid #475569;
+  padding: 2px;
+  background: rgba(30, 41, 59, 0.95);
+}
+.mode-slider {
+  display: none;
+  width: 100%;
+  margin-top: 6px;
+  accent-color: #3b82f6;
+}
+.slider-mode .mode-slider {
+  display: block;
+}
+.slider-mode #control-panel input[type="number"] {
+  background: #0f172a;
+  border-color: #475569;
+}
+#btn-control-mode.active,
+#btn-control-mode-dock.active {
+  background: #065f46;
+  border-color: #34d399;
+  color: #ecfeff;
+}
+
+/* iPad / touch optimization */
+@media (hover: none), (pointer: coarse), (max-width: 1180px) {
+  #topbar {
+    padding-left: 10px;
+    padding-right: 10px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #topbar-left, #topbar-right {
+    width: 100%;
+    min-height: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #project-area {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  #project-name {
+    width: 180px !important;
+    min-height: 38px;
+    font-size: 16px !important;
+  }
+
+  .tool-btn {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 16px;
+  }
+
+  #color-picker {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px;
+    min-height: 44px;
+    margin-left: 0 !important;
+  }
+
+  #btn-toggle-3d,
+  #btn-export-toggle,
+  #btn-select-folder {
+    min-height: 44px;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+    font-size: 14px !important;
+  }
+
+  #folder-name-display {
+    max-width: 140px !important;
+    font-size: 13px !important;
+  }
+
+  #export-dropdown {
+    width: 300px !important;
+  }
+
+  #split-left {
+    min-width: 260px !important;
+  }
+
+  #panel-header {
+    display: block;
+  }
+
+  #control-panel {
+    height: 38vh;
+    max-height: 320px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  #control-panel input,
+  #control-panel button,
+  #control-panel label {
+    min-height: 40px;
+    font-size: 15px;
+  }
+
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  #view-cube-controls {
+    top: 12px;
+    right: 12px;
+    gap: 6px;
+  }
+
+  .view-btn {
+    width: 42px;
+    height: 42px;
+    font-size: 12px;
+  }
+
+  .gutter {
+    width: 14px !important;
+  }
+
+  #touch-dock {
+    position: fixed;
+    left: 50%;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 14px;
+    border: 1px solid #475569;
+    background: rgba(2, 6, 23, 0.88);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 26px rgba(2, 6, 23, 0.5);
+  }
+
+  .dock-btn.active {
+    background: #2563eb;
+    border-color: #60a5fa;
+    color: #fff;
+  }
+
+  body {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}
