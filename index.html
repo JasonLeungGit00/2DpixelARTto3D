@@ -25,7 +25,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
 
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=20260225c" />
 </head>
 
 <body class="flex flex-col h-screen">
@@ -78,6 +78,9 @@
     </div>
 
     <div id="topbar-right" class="flex items-center gap-3">
+      <button id="btn-fullscreen" class="px-3 py-1 bg-gray-800 border border-gray-600 rounded text-sm text-gray-200" title="全螢幕">
+        <i class="fas fa-expand"></i>
+      </button>
       <button id="btn-control-mode" class="px-3 py-1 bg-gray-800 border border-gray-600 rounded text-sm text-emerald-300">拉桿模式</button>
       <button id="btn-toggle-3d" class="px-3 py-1 bg-gray-800 border border-gray-600 rounded text-sm text-blue-400">切換視窗</button>
 
@@ -348,8 +351,9 @@
     <button id="btn-redo-dock" class="dock-btn"><i class="fas fa-redo"></i></button>
     <button id="btn-control-mode-dock" class="dock-btn"><i class="fas fa-sliders-h"></i></button>
     <button id="btn-panel-toggle-dock" class="dock-btn"><i class="fas fa-sliders"></i></button>
+    <button id="btn-fullscreen-dock" class="dock-btn"><i class="fas fa-expand"></i></button>
   </div>
 
-  <script src="./app.js?v=20260225b"></script>
+  <script src="./app.js?v=20260225c"></script>
 </body>
 </html>

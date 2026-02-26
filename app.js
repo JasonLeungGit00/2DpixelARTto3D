@@ -343,6 +343,7 @@ fontLoader.load(
 // 防止打字時 orbit controls 抢事件
 document.getElementById('text-content').addEventListener('keydown', function (e) { e.stopPropagation(); });
 document.getElementById('project-name').addEventListener('keydown', function (e) { e.stopPropagation(); });
+document.getElementById('project-name').addEventListener('input', function () { saveProjectDraft(); });
 
 // Export dropdown
 var exportBtn = document.getElementById('btn-export-toggle');
@@ -359,6 +360,8 @@ var panelToggleBtn = document.getElementById('btn-panel-toggle');
 var panelToggleDockBtn = document.getElementById('btn-panel-toggle-dock');
 var controlModeBtn = document.getElementById('btn-control-mode');
 var controlModeDockBtn = document.getElementById('btn-control-mode-dock');
+var fullscreenBtn = document.getElementById('btn-fullscreen');
+var fullscreenDockBtn = document.getElementById('btn-fullscreen-dock');
 var panelToggleLabel = document.getElementById('panel-toggle-label');
 var layerListEl = document.getElementById('layer-list');
 var paletteSwatchesEl = document.getElementById('palette-swatches');
@@ -435,6 +438,50 @@ function syncControlModeUi() {
   }
 }
 
+function isFullscreenNow() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+
+function syncFullscreenUi() {
+  var active = isFullscreenNow() || document.body.classList.contains('pseudo-fullscreen');
+  if (fullscreenBtn) {
+    fullscreenBtn.classList.toggle('active', active);
+    fullscreenBtn.innerHTML = active ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+  }
+  if (fullscreenDockBtn) {
+    fullscreenDockBtn.classList.toggle('active', active);
+    fullscreenDockBtn.innerHTML = active ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+  }
+}
+
+function requestFullscreenCompat(el) {
+  if (el.requestFullscreen) return el.requestFullscreen();
+  if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+  if (el.msRequestFullscreen) return el.msRequestFullscreen();
+  return null;
+}
+
+function exitFullscreenCompat() {
+  if (document.exitFullscreen) return document.exitFullscreen();
+  if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+  if (document.msExitFullscreen) return document.msExitFullscreen();
+  return null;
+}
+
+function toggleFullscreenMode() {
+  var root = document.documentElement;
+  var canApiFullscreen = Boolean(root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen);
+  if (canApiFullscreen) {
+    if (isFullscreenNow()) exitFullscreenCompat();
+    else requestFullscreenCompat(root);
+    return;
+  }
+  // iPad / older Safari fallback: pseudo fullscreen app frame
+  document.body.classList.toggle('pseudo-fullscreen');
+  syncFullscreenUi();
+  window.dispatchEvent(new Event('resize'));
+}
+
 function togglePanel() {
   if (!controlPanel) return;
   panelManuallyToggled = true;
@@ -465,6 +512,10 @@ if (controlModeDockBtn) {
     syncControlModeUi();
   });
 }
+if (fullscreenBtn) fullscreenBtn.addEventListener('click', toggleFullscreenMode);
+if (fullscreenDockBtn) fullscreenDockBtn.addEventListener('click', toggleFullscreenMode);
+document.addEventListener('fullscreenchange', syncFullscreenUi);
+document.addEventListener('webkitfullscreenchange', syncFullscreenUi);
 
 function getSliderConfig(input) {
   var id = input.id || '';
@@ -893,6 +944,7 @@ function createHangerMeshes(mm, thick, material) {
   var meshes = [];
   var hRadius = parseFloat(state.hanger.radius);
   var hTube = parseFloat(state.hanger.thickness) / 2;
+  var hDepth = Math.max(0.4, parseFloat(state.hanger.thickness));
   var hx = parseFloat(state.hanger.x) * mm;
   var hz = parseFloat(state.hanger.y) * mm;
   var style = state.hanger.style || 'ring';
@@ -901,18 +953,19 @@ function createHangerMeshes(mm, thick, material) {
     var outer = hRadius * 2;
     var inner = Math.max(0.2, outer - (hTube * 2));
     var shape = style === 'pixel-square' ? createSquareRingShape(outer, inner) : createDiamondRingShape(outer, inner);
-    var geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.4, parseFloat(state.hanger.thickness)), bevelEnabled: false });
+    var geo = new THREE.ExtrudeGeometry(shape, { depth: hDepth, bevelEnabled: false });
     var mesh = new THREE.Mesh(geo, material);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(hx, thick / 2, hz);
+    // ExtrudeGeometry depth starts at 0, so offset by -depth/2 to center through model thickness.
+    mesh.position.set(hx, (thick / 2) - (hDepth / 2), hz);
     meshes.push(mesh);
   } else if (style === 'heart') {
     var hShape = createHeartShape(hRadius * 0.9);
-    var hGeo = new THREE.ExtrudeGeometry(hShape, { depth: Math.max(0.4, parseFloat(state.hanger.thickness)), bevelEnabled: false, curveSegments: 24 });
+    var hGeo = new THREE.ExtrudeGeometry(hShape, { depth: hDepth, bevelEnabled: false, curveSegments: 24 });
     var hMesh = new THREE.Mesh(hGeo, material);
     hMesh.rotation.x = -Math.PI / 2;
     hMesh.rotation.z = Math.PI;
-    hMesh.position.set(hx, thick / 2, hz);
+    hMesh.position.set(hx, (thick / 2) - (hDepth / 2), hz);
     meshes.push(hMesh);
   } else if (style === 'double-ring') {
     var outerGeo = new THREE.TorusGeometry(hRadius, hTube, 16, 48);
@@ -1803,9 +1856,26 @@ if (btnRotateDock) btnRotateDock.onclick = selectionRotateAction;
 if (btnToLayerDock) btnToLayerDock.onclick = selectionToLayerAction;
 
 // --- 匯出/儲存 ---
+function getProjectNameInput() {
+  return document.getElementById('project-name');
+}
+
+function getProjectNameValue() {
+  var input = getProjectNameInput();
+  if (!input) return 'Untitled';
+  var name = (input.value || '').trim();
+  return name || 'Untitled';
+}
+
+function setProjectNameValue(name) {
+  var input = getProjectNameInput();
+  if (!input) return;
+  var v = (name || '').trim();
+  input.value = v || 'MyPixelArt';
+}
+
 function getFileName() {
-  var name = document.getElementById('project-name').value;
-  return name ? name : 'Untitled';
+  return getProjectNameValue();
 }
 
 function exportGlbBlob(group) {
@@ -1836,6 +1906,7 @@ function exportGlbBlob(group) {
 function saveProjectDraft() {
   try {
     var snapshot = JSON.stringify({
+      projectName: getProjectNameValue(),
       gridW: state.gridW,
       gridH: state.gridH,
       mmScale: state.mmScale,
@@ -1886,6 +1957,7 @@ function restoreProjectDraft() {
     if (!state.hanger.style) state.hanger.style = 'ring';
     state.recentColors = d.recentColors || state.recentColors;
     state.palettePresets = d.palettePresets || state.palettePresets;
+    setProjectNameValue(d.projectName || '');
     ensureLayers();
     recomputePixelsFromLayers();
     return true;
@@ -1906,7 +1978,8 @@ async function exportAllLocalZip() {
     var fname = getFileName();
     var zip = new JSZip();
 
-    zip.file(fname + '.json', JSON.stringify(state));
+    var allJson = Object.assign({}, state, { projectName: getProjectNameValue() });
+    zip.file(fname + '.json', JSON.stringify(allJson));
 
     var exportGroup = createExportGroup();
     var stlData = new THREE.STLExporter().parse(exportGroup, { binary: true });
@@ -1958,7 +2031,8 @@ async function exportTo(destination, type) {
   var contentBlob, filename, mime, isBinary = false;
 
   if (type === 'json') {
-    var jsonStr = JSON.stringify(state);
+    var jsonPayload = Object.assign({}, state, { projectName: getProjectNameValue() });
+    var jsonStr = JSON.stringify(jsonPayload);
     contentBlob = new Blob([jsonStr], { type: 'application/json' });
     filename = fname + '.json';
     mime = 'application/json';
@@ -2051,11 +2125,14 @@ window.exportTo = exportTo;
 // --- 從電腦讀取 JSON ---
 document.getElementById('file-input').onchange = function (e) {
   document.getElementById('export-dropdown').classList.add('hidden');
+  var inputFile = e.target.files[0] || null;
   var r = new FileReader();
   r.onload = function (evt) {
     try {
       var d = JSON.parse(evt.target.result);
       state.selection = null;
+      var fallbackName = inputFile ? inputFile.name.replace(/\.json$/i, '') : '';
+      setProjectNameValue(d.projectName || fallbackName);
 
       state.layers = d.layers || [];
       state.activeLayerId = d.activeLayerId || '';
@@ -2114,7 +2191,7 @@ document.getElementById('file-input').onchange = function (e) {
       alert('JSON 讀取錯誤');
     }
   };
-  if (e.target.files[0]) r.readAsText(e.target.files[0]);
+  if (inputFile) r.readAsText(inputFile);
   e.target.value = '';
 };
 
@@ -2211,6 +2288,7 @@ function animate() {
   syncEnableBoxes();
   attachModeSliders();
   syncControlModeUi();
+  syncFullscreenUi();
   renderLayerList();
   renderPalette();
   refreshModeSliderValues();

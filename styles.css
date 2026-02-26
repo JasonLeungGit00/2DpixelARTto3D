@@ -168,10 +168,20 @@ input, button { pointer-events: auto !important; }
   border-color: #475569;
 }
 #btn-control-mode.active,
-#btn-control-mode-dock.active {
+#btn-control-mode-dock.active,
+#btn-fullscreen.active,
+#btn-fullscreen-dock.active {
   background: #065f46;
   border-color: #34d399;
   color: #ecfeff;
+}
+
+body.pseudo-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* iPad / touch optimization */
