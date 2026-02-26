@@ -135,6 +135,20 @@ input, button { pointer-events: auto !important; }
 #touch-dock {
   display: none;
 }
+#app-credit {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 40;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.75);
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  border-radius: 999px;
+  padding: 3px 10px;
+  pointer-events: none;
+  user-select: none;
+}
 .dock-btn {
   width: 44px;
   height: 44px;
@@ -311,5 +325,9 @@ body.pseudo-fullscreen {
 
   body {
     padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+
+  #app-credit {
+    display: none;
   }
 }
