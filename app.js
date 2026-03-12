@@ -158,7 +158,7 @@ var state = {
   palettePresets: ['#3b82f6', '#ef4444', '#22c55e', '#eab308', '#f97316', '#a855f7', '#0f172a', '#ffffff'],
   recentColors: [],
   relief: { enabled: false, inset: 0.2, height: 0.5 },
-  text: { enabled: false, content: 'PIXEL', size: 8, thickness: 1, x: 0, y: 0, color: '#ffffff' },
+  text: { enabled: false, mode: 'emboss', content: 'PIXEL', size: 8, thickness: 1, x: 0, y: 0, color: '#ffffff' },
   hanger: { enabled: false, x: 0, y: -10, radius: 3, thickness: 1, color: '#facc15', style: 'ring' },
   history: [], historyIndex: -1, is3DVisible: true
 };
@@ -200,8 +200,48 @@ function recomputePixelsFromLayers() {
   state.pixels = merged;
 }
 
+function normalizeTextState() {
+  if (!state.text) state.text = {};
+  if (!state.text.mode) state.text.mode = 'emboss';
+  state.text.size = Math.max(2, parseFloat(state.text.size) || 8);
+  state.text.thickness = Math.max(0.5, parseFloat(state.text.thickness) || 1);
+  state.text.x = parseFloat(state.text.x) || 0;
+  state.text.y = parseFloat(state.text.y) || 0;
+}
+
+function createTextMaskSampler(subdiv) {
+  normalizeTextState();
+  if (!state.text.enabled || state.text.mode !== 'cutout' || !state.text.content) return null;
+
+  var scale = Math.max(8, subdiv * 4);
+  var cw = Math.max(1, Math.floor(state.gridW * scale));
+  var ch = Math.max(1, Math.floor(state.gridH * scale));
+  var oc = document.createElement('canvas');
+  oc.width = cw;
+  oc.height = ch;
+  var c2 = oc.getContext('2d');
+  c2.clearRect(0, 0, cw, ch);
+  c2.fillStyle = '#ffffff';
+  c2.textAlign = 'center';
+  c2.textBaseline = 'middle';
+  c2.font = '700 ' + Math.max(6, (state.text.size / Math.max(0.1, state.mmScale)) * scale) + 'px sans-serif';
+
+  var tx = (state.gridW / 2 + state.text.x) * scale;
+  var ty = (state.gridH / 2 + state.text.y) * scale;
+  c2.fillText(state.text.content, tx, ty);
+  var data = c2.getImageData(0, 0, cw, ch).data;
+
+  return function isCut(gridX, gridY) {
+    var sx = Math.max(0, Math.min(cw - 1, Math.floor(gridX * scale)));
+    var sy = Math.max(0, Math.min(ch - 1, Math.floor(gridY * scale)));
+    var alpha = data[((sy * cw) + sx) * 4 + 3];
+    return alpha > 20;
+  };
+}
+
 function getMergedVisiblePixels() {
   ensureLayers();
+  normalizeTextState();
   var mergedFromLayers = {};
   var mergedFromState = {};
 
@@ -215,8 +255,50 @@ function getMergedVisiblePixels() {
 
   var layerCount = Object.keys(mergedFromLayers).length;
   var stateCount = Object.keys(mergedFromState).length;
-  if (layerCount >= stateCount) return mergedFromLayers;
-  return mergedFromState;
+  return layerCount >= stateCount ? mergedFromLayers : mergedFromState;
+}
+
+function pushColorPoint(map, color, x, y) {
+  if (!map[color]) map[color] = [];
+  map[color].push([x, y]);
+}
+
+function collectCutoutCells(renderPixels, cutSubdiv, cutMask) {
+  var byColorFull = {};
+  var byColorSubKeep = {};
+  var byColorSubCut = {};
+  for (var key in renderPixels) {
+    var coords = key.split(',');
+    var x = parseInt(coords[0], 10);
+    var y = parseInt(coords[1], 10);
+    var hex = renderPixels[key];
+    var cutCount = 0;
+    var freeSubs = [];
+    var cutSubs = [];
+
+    for (var sx = 0; sx < cutSubdiv; sx++) {
+      for (var sy = 0; sy < cutSubdiv; sy++) {
+        var gx = x + ((sx + 0.5) / cutSubdiv);
+        var gy = y + ((sy + 0.5) / cutSubdiv);
+        if (cutMask && cutMask(gx, gy)) {
+          cutCount++;
+          cutSubs.push([gx, gy]);
+        } else {
+          freeSubs.push([gx, gy]);
+        }
+      }
+    }
+
+    if (cutCount === 0) {
+      pushColorPoint(byColorFull, hex, x + 0.5, y + 0.5);
+    } else if (cutCount < cutSubdiv * cutSubdiv) {
+      freeSubs.forEach(function (p) { pushColorPoint(byColorSubKeep, hex, p[0], p[1]); });
+      cutSubs.forEach(function (p) { pushColorPoint(byColorSubCut, hex, p[0], p[1]); });
+    } else {
+      cutSubs.forEach(function (p) { pushColorPoint(byColorSubCut, hex, p[0], p[1]); });
+    }
+  }
+  return { full: byColorFull, subKeep: byColorSubKeep, subCut: byColorSubCut };
 }
 
 // --- Split.js ---
@@ -1041,6 +1123,7 @@ function getReliefConfig(mm, thick) {
 
 function update3D(fit) {
   clearArtGroup();
+  normalizeTextState();
 
   var mm = state.mmScale;
   var thick = state.layerThickness;
@@ -1048,55 +1131,81 @@ function update3D(fit) {
   var renderPixels = getMergedVisiblePixels();
   var offX = (state.gridW * mm) / 2;
   var offZ = (state.gridH * mm) / 2;
-  var byColor = {};
-
-  // 像素層
-  for (var key in renderPixels) {
-    var coords = key.split(',');
-    var x = parseInt(coords[0]);
-    var y = parseInt(coords[1]);
-    var hex = renderPixels[key];
-    if (!byColor[hex]) byColor[hex] = [];
-    byColor[hex].push([x, y]);
+  var cutoutMode = state.text.enabled && state.text.mode === 'cutout' && !!state.text.content;
+  var cutSubdiv = cutoutMode ? 6 : 1;
+  var cutMask = cutoutMode ? createTextMaskSampler(cutSubdiv) : null;
+  var cutDepth = 0;
+  var byColorFull = {};
+  var byColorSubKeep = {};
+  var byColorSubCut = {};
+  if (cutoutMode) {
+    cutDepth = Math.min(Math.max(0.1, parseFloat(state.text.thickness) || (thick * 0.5)), thick * 0.9);
+    var collected = collectCutoutCells(renderPixels, cutSubdiv, cutMask);
+    byColorFull = collected.full;
+    byColorSubKeep = collected.subKeep;
+    byColorSubCut = collected.subCut;
+  } else {
+    for (var key in renderPixels) {
+      var coords = key.split(',');
+      var x = parseInt(coords[0], 10);
+      var y = parseInt(coords[1], 10);
+      var hex = renderPixels[key];
+      pushColorPoint(byColorFull, hex, x + 0.5, y + 0.5);
+    }
   }
 
   var m4 = new THREE.Matrix4();
-  for (var color in byColor) {
-    var list = byColor[color];
-    var bodyThick = relief.enabled ? Math.max(0.05, thick - relief.height) : thick;
-    var bodyGeo = new THREE.BoxGeometry(mm, bodyThick, mm);
-    var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
-    mat.name = 'mat_' + color.replace('#', '');
-    var inst = new THREE.InstancedMesh(bodyGeo, mat, list.length);
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      m4.makeTranslation((p[0] * mm) - offX + (mm / 2), bodyThick / 2, (p[1] * mm) - offZ + (mm / 2));
-      inst.setMatrixAt(i, m4);
-    }
-    inst.castShadow = true;
-    inst.receiveShadow = true;
-    artGroup.add(inst);
-
-    if (relief.enabled) {
-      var capGeo = new THREE.BoxGeometry(relief.capSize, relief.height, relief.capSize);
-      var capInst = new THREE.InstancedMesh(capGeo, mat, list.length);
-      for (var j = 0; j < list.length; j++) {
-        var cp = list[j];
-        m4.makeTranslation((cp[0] * mm) - offX + (mm / 2), bodyThick + (relief.height / 2), (cp[1] * mm) - offZ + (mm / 2));
-        capInst.setMatrixAt(j, m4);
+  function renderCellBatch(byColorMap, cellSize, capSize, cellHeight) {
+    for (var color in byColorMap) {
+      var list = byColorMap[color];
+      if (!list.length) continue;
+      var finalHeight = Math.max(0.05, cellHeight);
+      var bodyThick = relief.enabled ? Math.max(0.05, finalHeight - relief.height) : finalHeight;
+      var capTopY = bodyThick + (relief.height / 2);
+      var bodyGeo = new THREE.BoxGeometry(cellSize, bodyThick, cellSize);
+      var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
+      mat.name = 'mat_' + color.replace('#', '');
+      var inst = new THREE.InstancedMesh(bodyGeo, mat, list.length);
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i];
+        m4.makeTranslation((p[0] * mm) - offX, bodyThick / 2, (p[1] * mm) - offZ);
+        inst.setMatrixAt(i, m4);
       }
-      capInst.castShadow = true;
-      capInst.receiveShadow = true;
-      artGroup.add(capInst);
+      inst.castShadow = true;
+      inst.receiveShadow = true;
+      artGroup.add(inst);
+
+      if (relief.enabled) {
+        var capGeo = new THREE.BoxGeometry(capSize, relief.height, capSize);
+        var capInst = new THREE.InstancedMesh(capGeo, mat, list.length);
+        for (var j = 0; j < list.length; j++) {
+          var cp = list[j];
+          m4.makeTranslation((cp[0] * mm) - offX, capTopY, (cp[1] * mm) - offZ);
+          capInst.setMatrixAt(j, m4);
+        }
+        capInst.castShadow = true;
+        capInst.receiveShadow = true;
+        artGroup.add(capInst);
+      }
     }
   }
 
+  renderCellBatch(byColorFull, mm, relief.capSize, thick);
+  if (cutoutMode) {
+    var subCell = mm / cutSubdiv;
+    var subCap = Math.max(subCell * 0.2, subCell - (relief.inset / cutSubdiv) * 2);
+    renderCellBatch(byColorSubKeep, subCell, subCap, thick);
+    renderCellBatch(byColorSubCut, subCell, subCap, Math.max(0.05, thick - cutDepth));
+  }
+
   // 文字層
-  if (state.text.enabled && loadedFont && state.text.content) {
+  if (state.text.enabled && loadedFont && state.text.content && state.text.mode !== 'cutout') {
+    var tHeight = parseFloat(state.text.thickness) || 1;
+    var tY = state.text.mode === 'embed' ? Math.max(0, thick - tHeight) : thick;
     var tGeo = new THREE.TextGeometry(state.text.content, {
       font: loadedFont,
       size: parseFloat(state.text.size),
-      height: parseFloat(state.text.thickness),
+      height: tHeight,
       curveSegments: 3
     });
     tGeo.computeBoundingBox();
@@ -1108,7 +1217,7 @@ function update3D(fit) {
 
     var meshT = new THREE.Mesh(tGeo, tMat);
     meshT.rotation.x = -Math.PI / 2;
-    meshT.position.set(tOffX + (parseFloat(state.text.x) * mm), thick, tOffZ + (parseFloat(state.text.y) * mm));
+    meshT.position.set(tOffX + (parseFloat(state.text.x) * mm), tY, tOffZ + (parseFloat(state.text.y) * mm));
     artGroup.add(meshT);
   }
 
@@ -1127,6 +1236,7 @@ function update3D(fit) {
 }
 
 function createExportGroup() {
+  normalizeTextState();
   var fromScene = exportGroupFromArtScene();
   if (fromScene.children.length > 0) return fromScene;
 
@@ -1137,35 +1247,78 @@ function createExportGroup() {
   var renderPixels = getMergedVisiblePixels();
   var offX = (state.gridW * mm) / 2;
   var offZ = (state.gridH * mm) / 2;
+  var cutoutMode = state.text.enabled && state.text.mode === 'cutout' && !!state.text.content;
+  var cutSubdiv = cutoutMode ? 6 : 1;
+  var cutMask = cutoutMode ? createTextMaskSampler(cutSubdiv) : null;
+  var cutDepth = 0;
   var bodyThick = relief.enabled ? Math.max(0.05, thick - relief.height) : thick;
-  var geo = new THREE.BoxGeometry(mm, bodyThick, mm);
-  var capGeo = relief.enabled ? new THREE.BoxGeometry(relief.capSize, relief.height, relief.capSize) : null;
   var mats = {};
 
-  for (var key in renderPixels) {
-    var coords = key.split(',');
-    var x = parseInt(coords[0], 10);
-    var y = parseInt(coords[1], 10);
-    var hex = renderPixels[key];
+  var byColorFull = {};
+  var byColorSubKeep = {};
+  var byColorSubCut = {};
+  if (cutoutMode) {
+    cutDepth = Math.min(Math.max(0.1, parseFloat(state.text.thickness) || (thick * 0.5)), thick * 0.9);
+    var collected = collectCutoutCells(renderPixels, cutSubdiv, cutMask);
+    byColorFull = collected.full;
+    byColorSubKeep = collected.subKeep;
+    byColorSubCut = collected.subCut;
+  } else {
+    for (var key in renderPixels) {
+      var coords = key.split(',');
+      var x = parseInt(coords[0], 10);
+      var y = parseInt(coords[1], 10);
+      var hex = renderPixels[key];
+      pushColorPoint(byColorFull, hex, x + 0.5, y + 0.5);
+    }
+  }
+
+  function ensureMat(hex) {
     if (!mats[hex]) {
       mats[hex] = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3 });
       mats[hex].name = 'mat_' + hex.replace('#', '');
     }
-    var mesh = new THREE.Mesh(geo, mats[hex]);
-    mesh.position.set((x * mm) - offX + (mm / 2), bodyThick / 2, (y * mm) - offZ + (mm / 2));
-    group.add(mesh);
-    if (relief.enabled) {
-      var capMesh = new THREE.Mesh(capGeo, mats[hex]);
-      capMesh.position.set((x * mm) - offX + (mm / 2), bodyThick + (relief.height / 2), (y * mm) - offZ + (mm / 2));
-      group.add(capMesh);
+    return mats[hex];
+  }
+
+  function appendMeshes(byColorMap, cellSize, capSize, cellHeight) {
+    var finalHeight = Math.max(0.05, cellHeight);
+    var baseHeight = relief.enabled ? Math.max(0.05, finalHeight - relief.height) : finalHeight;
+    var geo = new THREE.BoxGeometry(cellSize, baseHeight, cellSize);
+    var capGeo = relief.enabled ? new THREE.BoxGeometry(capSize, relief.height, capSize) : null;
+    for (var color in byColorMap) {
+      var list = byColorMap[color];
+      if (!list.length) continue;
+      var mat = ensureMat(color);
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i];
+        var mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set((p[0] * mm) - offX, baseHeight / 2, (p[1] * mm) - offZ);
+        group.add(mesh);
+        if (relief.enabled) {
+          var capMesh = new THREE.Mesh(capGeo, mat);
+          capMesh.position.set((p[0] * mm) - offX, baseHeight + (relief.height / 2), (p[1] * mm) - offZ);
+          group.add(capMesh);
+        }
+      }
     }
   }
 
-  if (state.text.enabled && loadedFont && state.text.content) {
+  appendMeshes(byColorFull, mm, relief.capSize, thick);
+  if (cutoutMode) {
+    var subCell = mm / cutSubdiv;
+    var subCap = Math.max(subCell * 0.2, subCell - (relief.inset / cutSubdiv) * 2);
+    appendMeshes(byColorSubKeep, subCell, subCap, thick);
+    appendMeshes(byColorSubCut, subCell, subCap, Math.max(0.05, thick - cutDepth));
+  }
+
+  if (state.text.enabled && loadedFont && state.text.content && state.text.mode !== 'cutout') {
+    var tHeight = parseFloat(state.text.thickness) || 1;
+    var tY = state.text.mode === 'embed' ? Math.max(0, thick - tHeight) : thick;
     var tGeo = new THREE.TextGeometry(state.text.content, {
       font: loadedFont,
       size: parseFloat(state.text.size),
-      height: parseFloat(state.text.thickness),
+      height: tHeight,
       curveSegments: 3
     });
     tGeo.computeBoundingBox();
@@ -1175,7 +1328,7 @@ function createExportGroup() {
     tMat.name = 'mat_' + state.text.color.replace('#', '');
     var meshT = new THREE.Mesh(tGeo, tMat);
     meshT.rotation.x = -Math.PI / 2;
-    meshT.position.set(tOffX + (parseFloat(state.text.x) * mm), thick, tOffZ + (parseFloat(state.text.y) * mm));
+    meshT.position.set(tOffX + (parseFloat(state.text.x) * mm), tY, tOffZ + (parseFloat(state.text.y) * mm));
     group.add(meshT);
   }
 
@@ -1778,6 +1931,7 @@ function loadHistory() {
   if (!state.relief.inset) state.relief.inset = 0.2;
   if (!state.relief.height) state.relief.height = 0.5;
   state.text = d.text || state.text;
+  normalizeTextState();
   state.hanger = d.hanger || state.hanger;
   if (!state.hanger.style) state.hanger.style = 'ring';
   if (d.color) state.color = d.color;
@@ -1795,6 +1949,7 @@ function loadHistory() {
   document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
   document.getElementById('relief-inset').value = state.relief.inset;
   document.getElementById('relief-height').value = state.relief.height;
+  document.getElementById('text-mode').value = state.text.mode || 'emboss';
   document.getElementById('hanger-style').value = state.hanger.style || 'ring';
 
   syncEnableBoxes();
@@ -1953,6 +2108,7 @@ function restoreProjectDraft() {
     if (!state.relief.inset) state.relief.inset = 0.2;
     if (!state.relief.height) state.relief.height = 0.5;
     state.text = d.text || state.text;
+    normalizeTextState();
     state.hanger = d.hanger || state.hanger;
     if (!state.hanger.style) state.hanger.style = 'ring';
     state.recentColors = d.recentColors || state.recentColors;
@@ -2159,6 +2315,7 @@ document.getElementById('file-input').onchange = function (e) {
       if (!state.relief.inset) state.relief.inset = 0.2;
       if (!state.relief.height) state.relief.height = 0.5;
       state.text = d.text || state.text;
+      normalizeTextState();
       if (d.hanger) state.hanger = d.hanger;
       if (!state.hanger.style) state.hanger.style = 'ring';
       if (d.color) state.color = d.color;
@@ -2176,6 +2333,7 @@ document.getElementById('file-input').onchange = function (e) {
       document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
       document.getElementById('relief-inset').value = state.relief.inset;
       document.getElementById('relief-height').value = state.relief.height;
+      document.getElementById('text-mode').value = state.text.mode || 'emboss';
       document.getElementById('hanger-style').value = state.hanger.style || 'ring';
 
       syncEnableBoxes();
@@ -2218,13 +2376,22 @@ document.getElementById('text-enable').onchange = function (e) {
   saveProjectDraft();
 };
 
-['text-content', 'text-size', 'text-thickness', 'text-x', 'text-y', 'text-color'].forEach(function (id) {
+['text-content', 'text-size', 'text-thickness', 'text-x', 'text-y', 'text-color', 'text-mode'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () {
     state.text[id.replace('text-', '')] = document.getElementById(id).value;
+    normalizeTextState();
+    if (id === 'text-size') document.getElementById('text-size').value = state.text.size;
+    if (id === 'text-thickness') document.getElementById('text-thickness').value = state.text.thickness;
     drawCanvas();
     update3D(false);
     saveProjectDraft();
   });
+});
+document.getElementById('text-mode').addEventListener('change', function () {
+  state.text.mode = this.value || 'emboss';
+  drawCanvas();
+  update3D(false);
+  saveProjectDraft();
 });
 
 document.getElementById('hanger-enable').onchange = function (e) {
@@ -2299,6 +2466,7 @@ function animate() {
   document.getElementById('relief-enable').checked = Boolean(state.relief.enabled);
   document.getElementById('relief-inset').value = state.relief.inset;
   document.getElementById('relief-height').value = state.relief.height;
+  document.getElementById('text-mode').value = state.text.mode || 'emboss';
   document.getElementById('hanger-style').value = state.hanger.style || 'ring';
   document.getElementById('grid-w').value = state.gridW;
   document.getElementById('grid-h').value = state.gridH;

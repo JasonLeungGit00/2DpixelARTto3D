@@ -25,7 +25,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
 
-  <link rel="stylesheet" href="./styles.css?v=20260225d" />
+  <link rel="stylesheet" href="./styles.css?v=20260225e" />
 </head>
 
 <body class="flex flex-col h-screen">
@@ -192,9 +192,17 @@
 
               <div id="text-controls" class="space-y-2 opacity-50 pointer-events-none transition-opacity">
                 <input type="text" id="text-content" placeholder="輸入文字..." class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white">
+                <div>
+                  <label class="text-[10px] text-gray-500 block">模式</label>
+                  <select id="text-mode" class="bg-gray-800 rounded px-2 py-1 w-full text-white border border-gray-700">
+                    <option value="emboss">浮雕（凸字）</option>
+                    <option value="embed">嵌入（壓入）</option>
+                    <option value="cutout">挖空（文字開洞）</option>
+                  </select>
+                </div>
                 <div class="grid grid-cols-4 gap-2">
-                  <div><label class="text-[10px] text-gray-500">大小</label><input type="number" id="text-size" value="8" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
-                  <div><label class="text-[10px] text-gray-500">厚度</label><input type="number" id="text-thickness" value="1" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                  <div><label class="text-[10px] text-gray-500">大小</label><input type="number" id="text-size" value="8" min="2" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
+                  <div><label class="text-[10px] text-gray-500">厚度</label><input type="number" id="text-thickness" value="1" min="0.5" step="0.5" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
                   <div><label class="text-[10px] text-gray-500">X</label><input type="number" id="text-x" value="0" step="0.1" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
                   <div><label class="text-[10px] text-gray-500">Y</label><input type="number" id="text-y" value="0" step="0.1" class="bg-gray-800 rounded px-1 py-1 w-full text-white"></div>
                 </div>
@@ -356,6 +364,6 @@
 
   <footer id="app-credit">Created by Jason Leung</footer>
 
-  <script src="./app.js?v=20260225d"></script>
+  <script src="./app.js?v=20260225i"></script>
 </body>
 </html>
